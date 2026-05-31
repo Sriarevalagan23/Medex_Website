@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/medex';
 import { supabase } from '@/lib/supabase';
+import { getReminders, Reminder } from '@/lib/reminders';
+import { logInAppNotification } from '@/lib/notifications';
 
 const tabs = [
   { href: '/home', label: 'Home', icon: 'home' },
@@ -56,7 +58,7 @@ function TabGlyph({ name, className }: { name: string; className?: string }) {
 }
 
 function isProtectedPath(pathname: string) {
-  return pathname !== '/login' && pathname !== '/register' && pathname !== '/forgot-password' && pathname !== '/index';
+  return pathname !== '/login' && pathname !== '/register' && pathname !== '/forgot-password' && pathname !== '/';
 }
 
 export function WebShell({ children }: { children: ReactNode }) {
@@ -172,7 +174,119 @@ export function WebShell({ children }: { children: ReactNode }) {
     };
   }, [pathname]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let timerId: NodeJS.Timeout;
+    const notifiedKeys = new Set<string>();
+
+    async function checkReminders() {
+      let allowed = true;
+      try {
+        const saved = window.localStorage.getItem('medex_settings');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.notifs === false || parsed.reminders === false) {
+            allowed = false;
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      if (!allowed || typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+      }
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !active) return;
+
+        const reminderList = await getReminders(user.id);
+        if (!active) return;
+
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const currentDayName = now.toLocaleDateString('en-US', { weekday: 'short' });
+        const dateStr = now.toDateString();
+
+        reminderList.forEach((reminder) => {
+          if (!reminder.active) return;
+
+          if (reminder.frequency.startsWith('Weekly')) {
+            const matchDays = reminder.frequency.match(/\((.+)\)/);
+            if (matchDays) {
+              const days = matchDays[1].split(', ').map(d => d.trim());
+              if (!days.includes(currentDayName)) {
+                return;
+              }
+            }
+          }
+
+          let parsedTimes: Record<string, string> = {};
+          try {
+            parsedTimes = typeof reminder.time === 'string' ? JSON.parse(reminder.time) : reminder.time;
+          } catch {
+            parsedTimes = { Morning: reminder.time || '08:00 AM' };
+          }
+
+          Object.entries(parsedTimes).forEach(([slot, timeStr]) => {
+            const match = timeStr.trim().match(/^(\d+):(\d+)\s+(AM|PM)$/i);
+            if (!match) return;
+
+            let hr = parseInt(match[1], 10);
+            const min = parseInt(match[2], 10);
+            const period = match[3].toUpperCase();
+
+            if (period === 'PM' && hr !== 12) {
+              hr += 12;
+            } else if (period === 'AM' && hr === 12) {
+              hr = 0;
+            }
+
+            if (currentHours === hr && currentMinutes === min) {
+              const key = `${reminder.id}-${slot}-${dateStr}`;
+              if (!notifiedKeys.has(key)) {
+                notifiedKeys.add(key);
+                new Notification(`Medicine Reminder: ${reminder.name}`, {
+                  body: `Time to take your ${reminder.dosage} (${reminder.mealTime}).`,
+                  icon: '/medex_logo.png',
+                });
+                logInAppNotification(
+                  `Medicine Reminder: ${reminder.name}`,
+                  `Time to take your ${reminder.dosage} (${reminder.mealTime}).`,
+                  'reminder'
+                );
+              }
+            }
+          });
+        });
+      } catch (err) {
+        console.error('Error checking reminders:', err);
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      checkReminders();
+      timerId = setInterval(checkReminders, 20000);
+    }
+
+    return () => {
+      active = false;
+      if (timerId) clearInterval(timerId);
+    };
+  }, []);
+
   const activeTab = useMemo(() => tabs.find((tab) => pathname === tab.href || pathname.startsWith(`${tab.href}/`)), [pathname]);
+  const isChat = pathname === '/ai-chat' || pathname === '/voice-chat';
 
   if (checkingAuth && isProtectedPath(pathname)) {
     return (
@@ -187,7 +301,7 @@ export function WebShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="medex-shell flex min-h-screen flex-col bg-white text-[#1f2937]">
+    <div className={cn("medex-shell flex min-h-screen flex-col bg-white text-[#1f2937]", isChat ? "overflow-hidden" : "")}>
       <header className={cn('sticky top-0 z-40 w-full border-b border-[#f1f1f1] bg-white', pathname === '/home' ? '' : 'hidden md:block')}>
         <div className="mx-auto flex h-14 sm:h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-6">
@@ -215,6 +329,16 @@ export function WebShell({ children }: { children: ReactNode }) {
               <input placeholder="Search" className="md:w-80 rounded-full border border-[#eef2e9] bg-white px-4 py-2 text-sm outline-none placeholder:text-[#9ca3af] shadow-sm" />
             </div>
             <Link
+              href="/notifications"
+              aria-label="Open notifications"
+              className="grid h-10 w-10 place-items-center rounded-full bg-white text-[#151717] shadow-sm ring-1 ring-[#e5e7eb] transition hover:scale-105 hover:bg-[#f8fafc]"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-[1.8]">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+            </Link>
+            <Link
               href="/profile"
               aria-label="Open profile"
               className="grid h-10 w-10 place-items-center rounded-full bg-white text-[#151717] shadow-sm ring-1 ring-[#e5e7eb] transition hover:scale-105 hover:bg-[#f8fafc]"
@@ -228,32 +352,41 @@ export function WebShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#222222] bg-[#0f0f0f]/98 backdrop-blur md:hidden">
-        <div className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
-          {tabs.map((tab) => {
-            const active = activeTab?.href === tab.href;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                style={{ color: '#fff' }}
-                className={cn(
-                  'flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-semibold transition',
-                  active ? 'text-[#9fcc3b]' : 'text-white hover:bg-white/5 hover:text-white',
-                )}
-              >
-                <span className="h-5 w-5 leading-none">
-                  <TabGlyph name={tab.icon} className={cn('h-5 w-5', active ? 'text-[#9fcc3b]' : 'text-white')} />
-                </span>
-                <span className={cn('mt-1 truncate', active ? 'text-[#9fcc3b]' : 'text-white')}>{tab.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      {!isChat && (
+        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#222222] bg-[#0f0f0f]/98 backdrop-blur md:hidden">
+          <div className="mx-auto grid max-w-7xl grid-cols-4 gap-1 px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+            {tabs.map((tab) => {
+              const active = activeTab?.href === tab.href;
+              return (
+                <Link
+                  key={tab.href}
+                  href={tab.href}
+                  style={{ color: '#fff' }}
+                  className={cn(
+                    'flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-semibold transition',
+                    active ? 'text-[#9fcc3b]' : 'text-white hover:bg-white/5 hover:text-white',
+                  )}
+                >
+                  <span className="h-5 w-5 leading-none">
+                    <TabGlyph name={tab.icon} className={cn('h-5 w-5', active ? 'text-[#9fcc3b]' : 'text-white')} />
+                  </span>
+                  <span className={cn('mt-1 truncate', active ? 'text-[#9fcc3b]' : 'text-white')}>{tab.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
-      <div className="mx-auto w-full max-w-7xl flex-1 px-2 pt-0 pb-24 sm:px-6 sm:pt-6 sm:pb-6 lg:px-8 md:pt-6 md:pb-6">
-        <main className="min-h-[70vh]">{children}</main>
+      <div className={cn(
+        "mx-auto w-full max-w-7xl flex-1",
+        isChat 
+          ? "px-0 pt-0 pb-0 sm:px-6 lg:px-8" 
+          : pathname === '/home'
+            ? "px-2 pt-0 pb-0 sm:px-6 sm:pt-6 sm:pb-0 lg:px-8 md:pt-6 md:pb-0"
+            : "px-2 pt-0 pb-24 sm:px-6 sm:pt-6 sm:pb-6 lg:px-8 md:pt-6 md:pb-6"
+      )}>
+        <main className={isChat ? "min-h-0" : "min-h-[70vh]"}>{children}</main>
       </div>
     </div>
   );
