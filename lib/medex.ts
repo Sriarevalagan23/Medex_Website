@@ -59,7 +59,7 @@ export const MEDexLinks = {
 } as const;
 
 export const MEDexRoutes = {
-  auth: ['/login', '/register', '/forgot-password', '/'] as const,
+  auth: ['/login', '/register', '/forgot-password', '/auth/reset-password', '/'] as const,
   protectedTabs: ['/home', '/reports', '/ai-chat', '/health-trends', '/profile'] as const,
 } as const;
 

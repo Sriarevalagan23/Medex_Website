@@ -1754,8 +1754,10 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
   const [interimTranscript, setInterimTranscript] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const voiceTextContainerRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const sessionId = useMemo(() => crypto.randomUUID(), []);
+  const isSpeakingCancelledRef = useRef(false);
 
   const latestUserMessage = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -1786,6 +1788,7 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
     setListening(false);
     setSpeaking(false);
     setInterimTranscript('');
+    isSpeakingCancelledRef.current = true;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -1796,13 +1799,97 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
   }, [messages, loading]);
 
   useEffect(() => {
+    if (voiceTextContainerRef.current) {
+      voiceTextContainerRef.current.scrollTo({
+        top: voiceTextContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [voiceDisplayText]);
+
+  useEffect(() => {
     return () => {
       recognitionRef.current?.abort();
+      isSpeakingCancelledRef.current = true;
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
     };
   }, []);
+
+  const speakText = (text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    
+    window.speechSynthesis.cancel();
+    isSpeakingCancelledRef.current = false;
+    
+    // Split the text into sentences/chunks of reasonable size (e.g., max 200 characters)
+    const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+(\s|$)/g) || [text];
+    
+    const chunks: string[] = [];
+    for (let sentence of sentences) {
+      sentence = sentence.trim();
+      if (!sentence) continue;
+      
+      // If a sentence is unusually long, split it by clauses (comma, semicolon) or words
+      if (sentence.length > 200) {
+        const subParts = sentence.match(/[^,;]+[,;]+(\s|$)|[^,;]+(\s|$)/g) || [sentence];
+        for (let sub of subParts) {
+          sub = sub.trim();
+          if (sub) chunks.push(sub);
+        }
+      } else {
+        chunks.push(sentence);
+      }
+    }
+    
+    if (chunks.length === 0) return;
+    
+    let currentIndex = 0;
+    setSpeaking(true);
+    
+    const speakNextChunk = () => {
+      if (isSpeakingCancelledRef.current) {
+        setSpeaking(false);
+        return;
+      }
+      
+      if (currentIndex >= chunks.length) {
+        setSpeaking(false);
+        return;
+      }
+      
+      const chunkText = chunks[currentIndex];
+      const utter = new SpeechSynthesisUtterance(chunkText);
+      utter.lang = 'en-US';
+      
+      utter.onstart = () => {
+        if (isSpeakingCancelledRef.current) {
+          window.speechSynthesis.cancel();
+          setSpeaking(false);
+        }
+      };
+      
+      utter.onend = () => {
+        currentIndex++;
+        speakNextChunk();
+      };
+      
+      utter.onerror = (e) => {
+        console.error('SpeechSynthesisUtterance error:', e);
+        if (e.error !== 'interrupted') {
+          currentIndex++;
+          speakNextChunk();
+        } else {
+          setSpeaking(false);
+        }
+      };
+      
+      window.speechSynthesis.speak(utter);
+    };
+    
+    speakNextChunk();
+  };
 
   const sendText = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -1826,14 +1913,8 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
       setMessages((prev) => [...prev, { from: 'ai', text: reply }]);
       // Speak the AI reply when in voice mode
       try {
-        if (mode === 'voice' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          const utter = new SpeechSynthesisUtterance(reply);
-          utter.lang = 'en-US';
-          utter.onstart = () => setSpeaking(true);
-          utter.onend = () => setSpeaking(false);
-          utter.onerror = () => setSpeaking(false);
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(utter);
+        if (mode === 'voice') {
+          speakText(reply);
         }
       } catch (err) {
         // ignore TTS errors
@@ -1845,7 +1926,21 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
     }
   };
 
+  const primeSpeechSynthesis = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        const prime = new SpeechSynthesisUtterance(" ");
+        prime.volume = 0;
+        prime.rate = 10;
+        window.speechSynthesis.speak(prime);
+      } catch (e) {
+        console.error('SpeechSynthesis priming failed:', e);
+      }
+    }
+  };
+
   const startVoice = () => {
+    primeSpeechSynthesis();
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
     recognitionRef.current?.abort();
@@ -1885,6 +1980,42 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
           transform-origin: center bottom;
           animation: voiceWave 1s ease-in-out infinite;
         }
+        .voice-text-scroll::-webkit-scrollbar {
+          width: 4px;
+        }
+        .voice-text-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .voice-text-scroll::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.08);
+          border-radius: 9999px;
+        }
+        @keyframes pulseGlow {
+          0%, 100% {
+            box-shadow: 0 0 15px 2px rgba(159, 204, 59, 0.35), 0 20px 70px rgba(26,34,14,0.14);
+            transform: scale(1);
+          }
+          50% {
+            box-shadow: 0 0 35px 12px rgba(159, 204, 59, 0.65), 0 20px 70px rgba(26,34,14,0.14);
+            transform: scale(1.05);
+          }
+        }
+        .mic-speaking-glow {
+          animation: pulseGlow 1.8s ease-in-out infinite;
+        }
+        @keyframes speakingRipple {
+          0% {
+            transform: scale(1);
+            opacity: 0.75;
+          }
+          100% {
+            transform: scale(1.55);
+            opacity: 0;
+          }
+        }
+        .mic-speaking-ripple {
+          animation: speakingRipple 2s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+        }
       `}</style>
 
       <div className="absolute right-5 top-5 z-20 sm:right-8 sm:top-6">
@@ -1901,8 +2032,17 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
       <div className="flex flex-1 items-center justify-center px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-20 sm:px-8 sm:pt-24">
         <div className="flex h-full w-full max-w-4xl flex-col items-center text-center">
           <div className="text-[11px] font-black uppercase tracking-[0.42em] text-[#8cab56]">Medex Voice Assistant</div>
-          <div className={cn('mt-6 max-w-3xl text-2xl font-black leading-snug tracking-tight sm:text-3xl lg:text-4xl', speaking ? 'text-[#151717]' : 'text-[#1b1f18]')}>
-            {voiceDisplayText}
+          
+          <div 
+            ref={voiceTextContainerRef}
+            className="mt-6 w-full max-w-3xl overflow-y-auto px-4 voice-text-scroll max-h-[35vh] sm:max-h-[40vh]"
+          >
+            <div className={cn(
+              'text-base font-semibold leading-relaxed tracking-wide sm:text-lg md:text-xl transition-all duration-300 text-center',
+              speaking ? 'text-gray-600' : 'text-gray-400'
+            )}>
+              {voiceDisplayText}
+            </div>
           </div>
 
           <div className="mt-auto flex flex-col items-center gap-4 pb-2 sm:pb-4">
@@ -1911,13 +2051,25 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
               type="button"
               onClick={listening ? stopVoice : startVoice}
               className={cn(
-                'relative flex h-24 w-24 items-center justify-center rounded-full border shadow-[0_20px_70px_rgba(26,34,14,0.14)] transition active:scale-95 sm:h-28 sm:w-28',
-                listening ? 'border-[#cfe9a2] bg-[#a8db4d]' : 'border-[#dcedba] bg-[#a8db4d]'
+                'relative flex h-24 w-24 items-center justify-center rounded-full border transition active:scale-95 sm:h-28 sm:w-28',
+                listening ? 'border-[#cfe9a2] bg-[#a8db4d]' : 'border-[#dcedba] bg-[#a8db4d]',
+                speaking ? 'mic-speaking-glow' : 'shadow-[0_20px_70px_rgba(26,34,14,0.14)]'
               )}
             >
-              {listening ? <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/35 animate-ping opacity-80" /> : null}
-              <span className={cn('absolute inset-0 rounded-full border border-[#9fcc3b]/30', listening ? 'animate-ping opacity-70' : 'opacity-40')} />
-              <span className={cn('absolute inset-3 rounded-full border border-[#9fcc3b]/20', listening ? 'animate-pulse' : 'opacity-60')} />
+              {listening ? (
+                <>
+                  <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/35 animate-ping opacity-80" />
+                  <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/30 animate-ping opacity-70" style={{ animationDelay: '500ms' }} />
+                </>
+              ) : null}
+              {speaking ? (
+                <>
+                  <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/40 mic-speaking-ripple" style={{ animationDelay: '0ms' }} />
+                  <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/30 mic-speaking-ripple" style={{ animationDelay: '1000ms' }} />
+                </>
+              ) : null}
+              <span className={cn('absolute inset-0 rounded-full border border-[#9fcc3b]/30', (listening || speaking) ? 'opacity-80' : 'opacity-40')} />
+              <span className={cn('absolute inset-3 rounded-full border border-[#9fcc3b]/20', (listening || speaking) ? 'animate-pulse' : 'opacity-60')} />
               <VoiceIcon listening={listening} className="relative z-10 h-10 w-10 text-[#10210b]" />
             </button>
             <div className="text-xs font-black uppercase tracking-[0.32em] text-[#7d8664]">{listening ? 'Listening' : speaking ? 'Speaking' : loading ? 'Processing' : 'Tap to talk'}</div>
