@@ -4,6 +4,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Medex',
   description: 'Medex web experience for medical reports, predictions, reminders, and AI support.',
+  icons: {
+    icon: '/medex_logo.png',
+    apple: '/medex_logo.png',
+  },
 };
 
 export default function RootLayout({
