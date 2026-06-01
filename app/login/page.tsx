@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { BtnPrimary, Card, EyeIcon, EyeOffIcon, InputField, LockIcon, MailIcon } from '@/components/ui/medex-ui';
@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isRecoveryMode = searchParams.get('mode') === 'recovery';
@@ -211,5 +211,22 @@ export default function LoginPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white px-4 py-10 sm:px-6 lg:px-8 flex items-center justify-center">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <div className="h-10 w-10 rounded-full border border-[#d6eea5] bg-white p-2 shadow-sm">
+            <div className="h-full w-full rounded-full bg-[#a7cf3d]" />
+          </div>
+          <div className="text-sm font-bold tracking-wider text-[#35413d] uppercase">Loading Medex...</div>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import { Badge, BtnPrimary, BtnSecondary, Card, Divider, InputField, Toggle, TopBar } from '@/components/ui/medex-ui';
 import { MEDexLinks, cn } from '@/lib/medex';
@@ -3511,5 +3511,18 @@ function OcrPreviewScreen() {
 }
 
 export default function ScreenRouter() {
-  return <ScreenPage />;
+  return (
+    <Suspense fallback={
+      <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center px-4 py-10">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <div className="h-10 w-10 rounded-full border border-[#d6eea5] bg-white p-2 shadow-sm">
+            <div className="h-full w-full rounded-full bg-[#a7cf3d]" />
+          </div>
+          <div className="text-sm font-bold tracking-wider text-[#35413d] uppercase">Loading Screen...</div>
+        </div>
+      </div>
+    }>
+      <ScreenPage />
+    </Suspense>
+  );
 }
