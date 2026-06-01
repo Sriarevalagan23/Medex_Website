@@ -12,7 +12,7 @@ import { getUserDocuments, saveUserDocument, uploadDocumentFile, UserDocument } 
 import { predictBP, predictDiabetes, predictHeart, savePredictionResult, PredictResponse } from '@/lib/predictions';
 import dynamic from 'next/dynamic';
 import homeLottieData from '@/public/voice_bot.json';
-import { sendPushNotification, logInAppNotification, getInAppNotifications, markNotificationsAsRead, clearNotifications, InAppNotification } from '@/lib/notifications';
+import { sendPushNotification, logInAppNotification, getInAppNotifications, markNotificationsAsRead, clearNotifications, InAppNotification, requestBrowserNotificationPermission } from '@/lib/notifications';
 
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 
@@ -40,6 +40,7 @@ type SpeechRecognitionInstance = {
   onstart: (() => void) | null;
   onend: (() => void) | null;
   onresult: ((event: RecognitionEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
   start: () => void;
   abort: () => void;
 };
@@ -64,7 +65,7 @@ const REPORT_TYPES = [
 
 const healthActions = [
   { href: '/upload', title: 'Upload Reports', desc: 'Add medical documents', iconBg: '#E3F5C7', iconColor: '#5A8A2E', icon: 'upload' },
-  { href: '/voice-chat', title: 'Talk to Medex', desc: 'AI health assistant', iconBg: '#E8F4FF', iconColor: '#2E6FAA', icon: 'mic' },
+  { href: '/ai-chat', title: 'Chat with Medex', desc: 'AI health assistant', iconBg: '#E8F4FF', iconColor: '#2E6FAA', icon: 'chat' },
   { href: '/health-predict', title: 'Predict Health Risk', desc: 'Heart, BP and diabetes', iconBg: '#FFF3E3', iconColor: '#AA6A2E', icon: 'trend' },
   { href: '/medicine-reminder', title: 'Medicine Reminder', desc: 'Set daily reminders', iconBg: '#F3E3FF', iconColor: '#7A2EAA', icon: 'pill' },
 ];
@@ -148,6 +149,15 @@ function ActionGlyph({ name, className }: { name: string; className?: string }) 
     );
   }
 
+  if (name === 'chat') {
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M7.5 17.5 5 19v-3.5A6.5 6.5 0 0 1 3.5 12 6.5 6.5 0 0 1 10 5.5h4A6.5 6.5 0 0 1 20.5 12 6.5 6.5 0 0 1 14 18.5H8.8" />
+        <path d="M9 11.5h6M9 8.5h4.5" />
+      </svg>
+    );
+  }
+
   return (
     <svg {...common} aria-hidden="true">
       <rect x="8" y="4" width="8" height="4" rx="2" />
@@ -213,6 +223,24 @@ function ReportTypeGlyph({ name, className }: { name: string; className?: string
       <path d="M8 5h8v14H8z" />
       <path d="M9.5 8h5M9.5 11h5M9.5 14h5" />
     </svg>
+  );
+}
+
+function FloatingAIShortcut() {
+  return (
+    <div className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 transition-all duration-300 hover:scale-105 active:scale-95 sm:bottom-6 sm:right-6 group">
+      <Link href="/voice-chat" className="block cursor-pointer">
+        <div className="h-20 w-20 sm:h-28 sm:w-28">
+          <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
+        </div>
+      </Link>
+      <Link
+        href="/ai-chat"
+        className="rounded-full bg-[#151717] px-3 py-1 text-[10px] font-black uppercase tracking-widest !text-white shadow-md transition-colors duration-200 group-hover:bg-[#9fcc3b] sm:text-xs"
+      >
+        Ask AI
+      </Link>
+    </div>
   );
 }
 
@@ -521,17 +549,7 @@ function HomeScreen() {
           </div>
         </div>
       </div>
-      <Link
-        href="/ai-chat"
-        className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 sm:bottom-6 sm:right-6 transition-all duration-300 hover:scale-105 active:scale-95 group"
-      >
-        <div className="w-20 h-20 sm:w-28 sm:h-28">
-          <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
-        </div>
-        <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase bg-[#151717] text-white px-3 py-1 rounded-full shadow-md group-hover:bg-[#9fcc3b] group-hover:text-black transition-colors duration-200">
-          Ask AI
-        </span>
-      </Link>
+      <FloatingAIShortcut />
 
       {/* Premium Footer */}
       <footer className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#0c0d0f] text-gray-400 mt-12 pt-12 pb-32 md:pb-12 px-4 sm:px-6 lg:px-8 border-t border-[#17191d]">
@@ -868,17 +886,7 @@ function ReportsScreen() {
           ))}
         </div>
       </div>
-      <Link
-        href="/ai-chat"
-        className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 sm:bottom-6 sm:right-6 transition-all duration-300 hover:scale-105 active:scale-95 group"
-      >
-        <div className="w-20 h-20 sm:w-28 sm:h-28">
-          <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
-        </div>
-        <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase bg-[#151717] text-white px-3 py-1 rounded-full shadow-md group-hover:bg-[#9fcc3b] group-hover:text-black transition-colors duration-200">
-          Ask AI
-        </span>
-      </Link>
+      <FloatingAIShortcut />
     </PageShell>
   );
 }
@@ -997,17 +1005,7 @@ function HealthPredictLanding() {
           ))}
         </div>
       </div>
-      <Link
-        href="/ai-chat"
-        className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 sm:bottom-6 sm:right-6 transition-all duration-300 hover:scale-105 active:scale-95 group"
-      >
-        <div className="w-20 h-20 sm:w-28 sm:h-28">
-          <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
-        </div>
-        <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase bg-[#151717] text-white px-3 py-1 rounded-full shadow-md group-hover:bg-[#9fcc3b] group-hover:text-black transition-colors duration-200">
-          Ask AI
-        </span>
-      </Link>
+      <FloatingAIShortcut />
     </PageShell>
   );
 }
@@ -1530,17 +1528,7 @@ function PredictionScreen({ model }: { model: 'heart' | 'diabetes' | 'bp' }) {
             </button>
           </div>
         </div>
-        <Link
-          href="/ai-chat"
-          className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 sm:bottom-6 sm:right-6 transition-all duration-300 hover:scale-105 active:scale-95 group"
-        >
-          <div className="w-20 h-20 sm:w-28 sm:h-28">
-            <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
-          </div>
-          <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase bg-[#151717] text-white px-3 py-1 rounded-full shadow-md group-hover:bg-[#9fcc3b] group-hover:text-black transition-colors duration-200">
-            Ask AI
-          </span>
-        </Link>
+        <FloatingAIShortcut />
       </PageShell>
     );
   }
@@ -1675,17 +1663,7 @@ function PredictionScreen({ model }: { model: 'heart' | 'diabetes' | 'bp' }) {
           {loading ? 'Analyzing Vitals…' : `Predict ${model === 'heart' ? 'Heart Attack' : model === 'diabetes' ? 'Diabetes' : 'BP'} Risk`}
         </button>
       </div>
-      <Link
-        href="/ai-chat"
-        className="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 sm:bottom-6 sm:right-6 transition-all duration-300 hover:scale-105 active:scale-95 group"
-      >
-        <div className="w-20 h-20 sm:w-28 sm:h-28">
-          <Lottie animationData={homeLottieData} loop={true} autoplay={true} />
-        </div>
-        <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase bg-[#151717] text-white px-3 py-1 rounded-full shadow-md group-hover:bg-[#9fcc3b] group-hover:text-black transition-colors duration-200">
-          Ask AI
-        </span>
-      </Link>
+      <FloatingAIShortcut />
     </PageShell>
   );
 }
@@ -1730,23 +1708,108 @@ function renderFormattedMessage(text: string) {
   });
 }
 
+function VoiceWaveform({ active }: { active: boolean }) {
+  return (
+    <div className="flex items-end justify-center gap-2">
+      {[10, 16, 24, 14, 22, 12, 20, 14, 18, 12].map((height, index) => (
+        <span
+          key={index}
+          className={cn(
+            'w-1.5 rounded-full bg-[#8dbb3a] transition-all duration-300',
+            active ? 'voice-wave-animate' : 'opacity-30'
+          )}
+          style={{ height: `${height}px`, animationDelay: `${index * 90}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function VoiceIcon({ listening, className }: { listening: boolean; className?: string }) {
+  if (listening) {
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className} stroke="currentColor" strokeWidth="2.1">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4a3 3 0 00-3 3v5a3 3 0 006 0V7a3 3 0 00-3-3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 11a5 5 0 0010 0" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16v4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 20h6" />
+    </svg>
+  );
+}
+
 function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([{ from: 'ai', text: 'Hi! I am Medex AI. How can I help you today?' }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const sessionId = useMemo(() => crypto.randomUUID(), []);
+
+  const latestUserMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.from === 'user') return messages[index].text;
+    }
+    return '';
+  }, [messages]);
+
+  const latestAiMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.from === 'ai') return messages[index].text;
+    }
+    return '';
+  }, [messages]);
+
+  const voiceStatus = listening ? 'Listening…' : loading ? 'Thinking…' : speaking ? 'Speaking…' : 'Tap to speak';
+  const voiceDisplayText = listening
+    ? interimTranscript || 'Listening...'
+    : loading
+      ? latestUserMessage || 'Thinking...'
+      : speaking
+        ? latestAiMessage || 'Speaking...'
+        : latestAiMessage || latestUserMessage || 'Tap the mic to start.';
+
+  const stopVoice = () => {
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setListening(false);
+    setSpeaking(false);
+    setInterimTranscript('');
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
   const sendText = async (text: string) => {
     if (!text.trim() || loading) return;
     const value = text.trim();
+    if (mode === 'voice') {
+      stopVoice();
+    }
     setMessages((prev) => [...prev, { from: 'user', text: value }]);
     setInput('');
     setLoading(true);
@@ -1761,6 +1824,20 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
       const json = await response.json();
       const reply = json.message || 'Sorry, I could not process that request.';
       setMessages((prev) => [...prev, { from: 'ai', text: reply }]);
+      // Speak the AI reply when in voice mode
+      try {
+        if (mode === 'voice' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          const utter = new SpeechSynthesisUtterance(reply);
+          utter.lang = 'en-US';
+          utter.onstart = () => setSpeaking(true);
+          utter.onend = () => setSpeaking(false);
+          utter.onerror = () => setSpeaking(false);
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utter);
+        }
+      } catch (err) {
+        // ignore TTS errors
+      }
     } catch {
       setMessages((prev) => [...prev, { from: 'ai', text: 'Sorry, I could not reach the server right now.' }]);
     } finally {
@@ -1771,18 +1848,88 @@ function ChatScreen({ mode }: { mode: 'chat' | 'voice' }) {
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
+    recognitionRef.current?.abort();
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = true;
     recognition.continuous = false;
     recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setListening(false);
+    };
     recognition.onresult = (event: RecognitionEvent) => {
       const transcript = event.results[0]?.[0]?.transcript ?? '';
-      if (event.results[0]?.isFinal && transcript.trim()) sendText(transcript.trim());
+      setInterimTranscript(transcript.trim());
+      if (event.results[0]?.isFinal && transcript.trim()) {
+        sendText(transcript.trim());
+      }
     };
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      setListening(false);
+      setInterimTranscript('');
+    };
+    recognitionRef.current = recognition;
     recognition.start();
   };
+
+  const renderVoiceScreen = () => (
+    <div className="fixed inset-0 flex min-h-[100dvh] flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_#eef9d6_0%,_#f8fbf0_35%,_#ffffff_72%)] text-[#151717]">
+      <style>{`
+        @keyframes voiceWave {
+          0%, 100% { transform: scaleY(0.45); opacity: 0.55; }
+          50% { transform: scaleY(1.25); opacity: 1; }
+        }
+        .voice-wave-animate {
+          transform-origin: center bottom;
+          animation: voiceWave 1s ease-in-out infinite;
+        }
+      `}</style>
+
+      <div className="absolute right-5 top-5 z-20 sm:right-8 sm:top-6">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          aria-label="Close voice chat"
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-black/10 bg-white/60 text-3xl leading-none shadow-[0_8px_24px_rgba(18,24,12,0.10)] backdrop-blur-sm transition active:scale-95"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-20 sm:px-8 sm:pt-24">
+        <div className="flex h-full w-full max-w-4xl flex-col items-center text-center">
+          <div className="text-[11px] font-black uppercase tracking-[0.42em] text-[#8cab56]">Medex Voice Assistant</div>
+          <div className={cn('mt-6 max-w-3xl text-2xl font-black leading-snug tracking-tight sm:text-3xl lg:text-4xl', speaking ? 'text-[#151717]' : 'text-[#1b1f18]')}>
+            {voiceDisplayText}
+          </div>
+
+          <div className="mt-auto flex flex-col items-center gap-4 pb-2 sm:pb-4">
+            <VoiceWaveform active={listening || speaking || loading} />
+            <button
+              type="button"
+              onClick={listening ? stopVoice : startVoice}
+              className={cn(
+                'relative flex h-24 w-24 items-center justify-center rounded-full border shadow-[0_20px_70px_rgba(26,34,14,0.14)] transition active:scale-95 sm:h-28 sm:w-28',
+                listening ? 'border-[#cfe9a2] bg-[#a8db4d]' : 'border-[#dcedba] bg-[#a8db4d]'
+              )}
+            >
+              {listening ? <span className="absolute inset-0 rounded-full border border-[#9fcc3b]/35 animate-ping opacity-80" /> : null}
+              <span className={cn('absolute inset-0 rounded-full border border-[#9fcc3b]/30', listening ? 'animate-ping opacity-70' : 'opacity-40')} />
+              <span className={cn('absolute inset-3 rounded-full border border-[#9fcc3b]/20', listening ? 'animate-pulse' : 'opacity-60')} />
+              <VoiceIcon listening={listening} className="relative z-10 h-10 w-10 text-[#10210b]" />
+            </button>
+            <div className="text-xs font-black uppercase tracking-[0.32em] text-[#7d8664]">{listening ? 'Listening' : speaking ? 'Speaking' : loading ? 'Processing' : 'Tap to talk'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (mode === 'voice') {
+    return renderVoiceScreen();
+  }
 
   return (
     <PageShell title="Health assistant" onBack={() => router.back()}>
@@ -2890,19 +3037,17 @@ function SettingsScreen() {
     }
 
     if (key === 'notifs' && newVal) {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        Notification.requestPermission().then((perm) => {
-          if (perm !== 'granted') {
-            const resetToggles = { ...newToggles, notifs: false };
-            setToggles(resetToggles);
-            try {
-              window.localStorage.setItem('medex_settings', JSON.stringify(resetToggles));
-            } catch (e) {
-              // ignore
-            }
+      requestBrowserNotificationPermission().then((perm) => {
+        if (perm !== 'granted') {
+          const resetToggles = { ...newToggles, notifs: false };
+          setToggles(resetToggles);
+          try {
+            window.localStorage.setItem('medex_settings', JSON.stringify(resetToggles));
+          } catch (e) {
+            // ignore
           }
-        });
-      }
+        }
+      });
     }
   };
 
@@ -3067,20 +3212,139 @@ function ChangePasswordScreen() {
 }
 
 function NotificationsScreen() {
+  const [items, setItems] = useState<InAppNotification[]>([]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setItems(getInAppNotifications());
+    };
+
+    refresh();
+    window.addEventListener('medex_new_notification', refresh as EventListener);
+    return () => {
+      window.removeEventListener('medex_new_notification', refresh as EventListener);
+    };
+  }, []);
+
+  const handleMarkAllRead = () => {
+    markNotificationsAsRead();
+    setItems(getInAppNotifications());
+  };
+
+  const handleClear = () => {
+    clearNotifications();
+    setItems([]);
+  };
+
   return (
     <PageShell title="Notifications" onBack={() => window.history.back()}>
-      <Card className="p-5 text-sm text-[#4b5563]">Notifications parity will be wired to browser push and in-app alerts in the next slice.</Card>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-[#4b5563]">
+            {items.length ? `${items.length} notification${items.length === 1 ? '' : 's'}` : 'No notifications yet'}
+          </p>
+          <div className="flex items-center gap-2">
+            <BtnSecondary onClick={handleMarkAllRead} disabled={!items.length} className="h-8 px-3 text-[11px] leading-none sm:h-10 sm:px-4 sm:text-sm">
+              Mark all read
+            </BtnSecondary>
+            <BtnSecondary onClick={handleClear} disabled={!items.length} className="h-8 px-3 text-[11px] leading-none sm:h-10 sm:px-4 sm:text-sm">
+              Clear all
+            </BtnSecondary>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {items.length ? items.map((item) => (
+            <Card key={item.id} className="p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-[#151717]">{item.title}</h4>
+                    {!item.read ? <span className="rounded-full bg-[#e3f5c7] px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#5a8a2e]">New</span> : null}
+                  </div>
+                  <p className="mt-1 text-sm text-[#4b5563]">{item.body}</p>
+                </div>
+                <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8b919d]">
+                  {new Date(item.timestamp).toLocaleString()}
+                </span>
+              </div>
+            </Card>
+          )) : (
+            <Card className="p-5 text-sm text-[#4b5563]">
+              Your notification inbox is empty. Reminder and prediction alerts will appear here once delivered.
+            </Card>
+          )}
+        </div>
+      </div>
     </PageShell>
   );
 }
 
 function SearchScreen() {
-  const [query, setQuery] = useState('');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const initialQuery = searchParams.get('q') || '';
+  const [query, setQuery] = useState(initialQuery);
+  const [documents, setDocuments] = useState<UserDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !active) return;
+        const docs = await getUserDocuments(user.id);
+        if (!active) return;
+        setDocuments(docs);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('Error loading documents for search:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    load();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const q = searchParams.get('q') || '';
+    setQuery(q);
+  }, [searchParams]);
+
+  const shown = useMemo(() => documents.filter((doc) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    const fields = [doc.report_name, doc.hospital_name, doc.file_name, doc.additional_notes, doc.report_category, doc.file_type];
+    return fields.some((f) => typeof f === 'string' && f.toLowerCase().includes(q));
+  }), [documents, query]);
+
   return (
-    <PageShell title="Search" onBack={() => window.history.back()}>
+    <PageShell title="Search" onBack={() => router.back()}>
       <div className="space-y-4">
         <InputField placeholder="Search reports or reminders" value={query} onChange={(e) => setQuery(e.target.value)} icon={<span>⌕</span>} />
-        <Card className="p-5 text-sm text-[#6b7280]">Search results will surface documents, reminders, and profile data.</Card>
+        {loading ? (
+          <Card className="p-5 text-sm text-[#6b7280]">Loading search results…</Card>
+        ) : (
+          <div className="space-y-3">
+            {shown.length ? shown.map((doc) => (
+              <Card key={doc.id} className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h4 className="font-bold text-[#151717]">{doc.report_name || doc.file_name || 'Document'}</h4>
+                    <p className="mt-1 text-sm text-[#4b5563]">{doc.hospital_name || doc.report_category}</p>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8b919d]">
+                    {doc.report_date ? new Date(doc.report_date).toLocaleDateString() : new Date(doc.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </Card>
+            )) : (
+              <Card className="p-5 text-sm text-[#6b7280]">No matching documents found.</Card>
+            )}
+          </div>
+        )}
       </div>
     </PageShell>
   );

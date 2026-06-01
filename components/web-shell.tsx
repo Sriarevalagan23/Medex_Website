@@ -3,11 +3,17 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/medex';
 import { supabase } from '@/lib/supabase';
 import { getReminders, Reminder } from '@/lib/reminders';
-import { logInAppNotification } from '@/lib/notifications';
+import { getInAppNotifications, logInAppNotification, maybeSendPromotionalNotification, sendPushNotification } from '@/lib/notifications';
+
+type ToastNotification = {
+  title: string;
+  body: string;
+  type: 'reminder' | 'prediction' | 'general';
+};
 
 const tabs = [
   { href: '/home', label: 'Home', icon: 'home' },
@@ -66,12 +72,49 @@ export function WebShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(isProtectedPath(pathname));
   const [profileName, setProfileName] = useState('...');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [toastNotification, setToastNotification] = useState<ToastNotification | null>(null);
   const [todaysTip, setTodaysTip] = useState<{
     title?: string;
     tip?: string;
     emoji?: string;
     category?: string;
   } | null>(null);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    function syncUnreadCount() {
+      const notifications = getInAppNotifications();
+      setUnreadCount(notifications.filter((notification) => !notification.read).length);
+    }
+
+    const handleNotificationEvent = (event: Event) => {
+      syncUnreadCount();
+
+      const customEvent = event as CustomEvent<ToastNotification>;
+      if (customEvent.detail?.title) {
+        setToastNotification(customEvent.detail);
+        if (toastTimerRef.current) {
+          clearTimeout(toastTimerRef.current);
+        }
+        toastTimerRef.current = setTimeout(() => {
+          setToastNotification(null);
+        }, 3200);
+      }
+    };
+
+    syncUnreadCount();
+    window.addEventListener('medex_new_notification', handleNotificationEvent as EventListener);
+    window.addEventListener('storage', syncUnreadCount);
+
+    return () => {
+      window.removeEventListener('medex_new_notification', handleNotificationEvent as EventListener);
+      window.removeEventListener('storage', syncUnreadCount);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -132,7 +175,14 @@ export function WebShell({ children }: { children: ReactNode }) {
             window.localStorage.setItem('health_tip_cached_data', JSON.stringify(selectedTip));
           }
 
-          if (active) setTodaysTip(selectedTip as any);
+          if (active) {
+            setTodaysTip(selectedTip as {
+              title?: string;
+              tip?: string;
+              emoji?: string;
+              category?: string;
+            });
+          }
         }
       } catch (err) {
         // swallow error and keep default content
@@ -173,14 +223,6 @@ export function WebShell({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [pathname]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -256,10 +298,11 @@ export function WebShell({ children }: { children: ReactNode }) {
               const key = `${reminder.id}-${slot}-${dateStr}`;
               if (!notifiedKeys.has(key)) {
                 notifiedKeys.add(key);
-                new Notification(`Medicine Reminder: ${reminder.name}`, {
-                  body: `Time to take your ${reminder.dosage} (${reminder.mealTime}).`,
-                  icon: '/medex_logo.png',
-                });
+                sendPushNotification(
+                  `Medicine Reminder: ${reminder.name}`,
+                  `Time to take your ${reminder.dosage} (${reminder.mealTime}).`,
+                  'reminder'
+                );
                 logInAppNotification(
                   `Medicine Reminder: ${reminder.name}`,
                   `Time to take your ${reminder.dosage} (${reminder.mealTime}).`,
@@ -284,6 +327,24 @@ export function WebShell({ children }: { children: ReactNode }) {
       if (timerId) clearInterval(timerId);
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const tryPromotionalNotification = () => {
+      if (!active) return;
+      if (pathname === '/notifications') return;
+      maybeSendPromotionalNotification();
+    };
+
+    tryPromotionalNotification();
+    const promoTimer = setInterval(tryPromotionalNotification, 15 * 60 * 1000);
+
+    return () => {
+      active = false;
+      if (promoTimer) clearInterval(promoTimer);
+    };
+  }, [pathname]);
 
   const activeTab = useMemo(() => tabs.find((tab) => pathname === tab.href || pathname.startsWith(`${tab.href}/`)), [pathname]);
   const isChat = pathname === '/ai-chat' || pathname === '/voice-chat';
@@ -326,18 +387,23 @@ export function WebShell({ children }: { children: ReactNode }) {
 
           <div className="flex items-center gap-4">
             <div className="hidden md:block">
-              <input placeholder="Search" className="md:w-80 rounded-full border border-[#eef2e9] bg-white px-4 py-2 text-sm outline-none placeholder:text-[#9ca3af] shadow-sm" />
+              <SearchInput />
             </div>
-            <Link
-              href="/notifications"
-              aria-label="Open notifications"
-              className="grid h-10 w-10 place-items-center rounded-full bg-white text-[#151717] shadow-sm ring-1 ring-[#e5e7eb] transition hover:scale-105 hover:bg-[#f8fafc]"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-[1.8]">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-            </Link>
+            <div className="relative">
+              <Link
+                href="/notifications"
+                aria-label="Open notifications"
+                className="grid h-10 w-10 place-items-center rounded-full bg-white text-[#151717] shadow-sm ring-1 ring-[#e5e7eb] transition hover:scale-105 hover:bg-[#f8fafc]"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-[1.8]">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+              </Link>
+              {unreadCount > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[#9fcc3b] shadow-sm ring-2 ring-white" />
+              ) : null}
+            </div>
             <Link
               href="/profile"
               aria-label="Open profile"
@@ -351,6 +417,16 @@ export function WebShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+
+      {toastNotification ? (
+        <div className="pointer-events-none fixed left-1/2 top-4 z-50 w-[min(92vw,24rem)] -translate-x-1/2 px-3">
+          <div className="rounded-[24px] border border-[#e5e7eb] bg-white/95 px-4 py-3 shadow-[0_18px_50px_rgba(21,23,23,0.18)] backdrop-blur-md animate-[toast-in_180ms_ease-out,toast-out_320ms_ease-in_2900ms_forwards]">
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#9ca3af]">New notification</p>
+            <p className="mt-1 text-sm font-bold text-[#151717]">{toastNotification.title}</p>
+            <p className="mt-0.5 text-sm text-[#4b5563]">{toastNotification.body}</p>
+          </div>
+        </div>
+      ) : null}
 
       {!isChat && (
         <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#222222] bg-[#0f0f0f]/98 backdrop-blur md:hidden">
@@ -389,5 +465,24 @@ export function WebShell({ children }: { children: ReactNode }) {
         <main className={isChat ? "min-h-0" : "min-h-[70vh]"}>{children}</main>
       </div>
     </div>
+  );
+}
+
+function SearchInput() {
+  const router = useRouter();
+  const [value, setValue] = useState('');
+
+  return (
+    <input
+      placeholder="Search"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && value.trim()) {
+          router.push(`/search?q=${encodeURIComponent(value.trim())}`);
+        }
+      }}
+      className="md:w-80 rounded-full border border-[#eef2e9] bg-white px-3 py-2 text-sm outline-none placeholder:text-[#9ca3af] shadow-sm"
+    />
   );
 }
