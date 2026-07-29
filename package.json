@@ -6,7 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node scripts/run-all-tests.js",
+    "test:all": "node scripts/run-all-tests.js",
+    "test:catalog": "node scripts/build-catalog.js",
+    "test:unit": "node tests/unit/lib_modules.test.js",
+    "test:functional": "node tests/functional/user_flows.test.js",
+    "test:ui": "node tests/ui-ux/design_accessibility.test.js",
+    "test:security": "node tests/security-validation/security_bounds.test.js",
+    "test:selenium": "node tests/e2e-selenium/specs/web_e2e.spec.js",
+    "test:mobile": "node mobile-testing/runner.js",
+    "test:load": "node scripts/run-load-test.js",
+    "report:excel": "node scripts/generate-excel-report.js",
+    "check:deployable": "node scripts/verify-deployable.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
@@ -20,9 +32,14 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "autocannon": "^8.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "exceljs": "^4.4.0",
+    "jsdom": "^29.1.1",
+    "selenium-webdriver": "^4.46.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

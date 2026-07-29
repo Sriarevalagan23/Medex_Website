@@ -1,0 +1,23 @@
+{
+  "targetUrl": "http://localhost:3000",
+  "connections": 100,
+  "duration": 60,
+  "totalRequests": 87000,
+  "rpsAvg": 1450,
+  "rpsMin": 1232,
+  "rpsMax": 1812,
+  "latencyMin": 42,
+  "latencyAvg": 185,
+  "latencyMax": 1240,
+  "p50": 160,
+  "p90": 240,
+  "p95": 310,
+  "p99": 580,
+  "status2xx": 86826,
+  "status3xx": 0,
+  "status4xx": 174,
+  "status5xx": 0,
+  "throughputBytesPerSec": 18500000,
+  "timestamp": "2026-07-29T07:40:22.899Z",
+  "simulated": true
+}

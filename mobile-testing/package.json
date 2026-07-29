@@ -1,0 +1,14 @@
+{
+  "name": "medex-mobile-testing",
+  "version": "1.0.0",
+  "description": "Appium Mobile E2E Test Suite for Medex Mobile Application (Android & iOS)",
+  "main": "runner.js",
+  "scripts": {
+    "test:mobile": "node runner.js",
+    "test:android": "APPIUM_PLATFORM=Android node runner.js",
+    "test:ios": "APPIUM_PLATFORM=iOS node runner.js"
+  },
+  "dependencies": {
+    "webdriverio": "^8.0.0"
+  }
+}
